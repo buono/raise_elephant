@@ -71,7 +71,7 @@ void displayImageFromSD(const char* filename) {
 
     int rc = png.openRAM(buffer, fileSize, pngDraw);
     if (rc == PNG_SUCCESS) {
-        M5.Lcd.clear();
+        // ここでは画面をクリアしない
         int decodeResult = png.decode(NULL, 0);
         if (decodeResult != 0) {
             Serial.printf("PNG decode failed with code: %d\n", decodeResult);
@@ -89,7 +89,10 @@ void displayImageFromSD(const char* filename) {
 
 // OpenAIに画像編集リクエストを送信する関数（プロンプトを引数に追加）
 void sendImageEditRequest(const char* prompt) {
-    M5.Lcd.clear();
+    // リクエスト開始時に画面をクリアしないように変更
+    // M5.Lcd.clear();
+    M5.Lcd.setCursor(0, 220);
+    M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
     M5.Lcd.println("Sending request...");
     Serial.println("Preparing to send image edit request to OpenAI...");
 
@@ -310,7 +313,7 @@ void downloadAndDisplayImage(const char* url) {
         return;
     }
 
-    // 画像データを読み込みながら表示
+    // 画像データを読み込みながら保存
     uint8_t buffer[1024];
     size_t bytesRead = 0;
     size_t totalBytes = 0;
@@ -328,6 +331,7 @@ void downloadAndDisplayImage(const char* url) {
     client.stop();
 
     // ダウンロードした画像を表示
+    M5.Lcd.clear(); // 新しい画像を表示する前に画面をクリア
     displayImageFromSD("/edited.png");
 }
 
