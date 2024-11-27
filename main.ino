@@ -90,7 +90,6 @@ void displayImageFromSD(const char* filename) {
 // OpenAIに画像編集リクエストを送信する関数（プロンプトを引数に追加）
 void sendImageEditRequest(const char* prompt) {
     // リクエスト開始時に画面をクリアしないように変更
-    // M5.Lcd.clear();
     M5.Lcd.setCursor(0, 220);
     M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
     M5.Lcd.println("Sending request...");
@@ -107,6 +106,14 @@ void sendImageEditRequest(const char* prompt) {
 
     // 入力画像のパスを決定
     const char* imageFilePath = inputImagePath.c_str();
+
+    // **シリアルログに詳細情報を出力**
+    Serial.println("====================================");
+    Serial.print("Sending image file: ");
+    Serial.println(imageFilePath);
+    Serial.print("Using prompt: ");
+    Serial.println(prompt);
+    Serial.println("====================================");
 
     // 画像とマスクファイルをSDカードから読み込む
     File imageFile = SD.open(imageFilePath, FILE_READ);
@@ -166,13 +173,9 @@ void sendImageEditRequest(const char* prompt) {
 
     // ヘッダーを送信
     client.print(headers);
-    Serial.println("Request Headers:");
-    Serial.println(headers);
 
     // ボディの開始部分を送信
     client.print(bodyStart);
-    Serial.println("Body Start:");
-    Serial.println(bodyStart);
 
     // 画像ファイルの内容を送信
     uint8_t buffer[1024];
@@ -189,8 +192,6 @@ void sendImageEditRequest(const char* prompt) {
 
     // ボディの中間部分を送信
     client.print(bodyMiddle);
-    Serial.println("Body Middle:");
-    Serial.println(bodyMiddle);
 
     // マスクファイルの内容を送信
     bytesRead = 0;
@@ -206,18 +207,12 @@ void sendImageEditRequest(const char* prompt) {
 
     // プロンプトを送信
     client.print(bodyPrompt);
-    Serial.println("Body Prompt:");
-    Serial.println(bodyPrompt);
 
     // sizeパラメータを送信
     client.print(bodySize);
-    Serial.println("Body Size:");
-    Serial.println(bodySize);
 
     // ボディの終了部分を送信
     client.print(bodyEnd);
-    Serial.println("Body End:");
-    Serial.println(bodyEnd);
 
     // レスポンスを読み取る
     String responseHeaders = "";
@@ -267,9 +262,7 @@ void sendImageEditRequest(const char* prompt) {
     // 生成された画像をダウンロードして表示し、SDカードに保存
     downloadAndDisplayImage(imageUrl);
 
-    // 次回のリクエストから生成された画像を使用
-    inputImagePath = "/edited.png";
-    isFirstRequest = false;
+    // inputImagePathの更新はここでは行わない
 }
 
 // 画像をダウンロードして表示し、SDカードに保存する関数
@@ -315,15 +308,12 @@ void downloadAndDisplayImage(const char* url) {
 
     // 画像データを読み込みながら保存
     uint8_t buffer[1024];
-    size_t bytesRead = 0;
-    size_t totalBytes = 0;
     while (client.connected() || client.available()) {
         if (client.available()) {
             int len = client.read(buffer, sizeof(buffer));
             if (len > 0) {
                 // SDカードに書き込み
                 imageFile.write(buffer, len);
-                totalBytes += len;
             }
         }
     }
@@ -333,14 +323,17 @@ void downloadAndDisplayImage(const char* url) {
     // ダウンロードした画像を表示
     M5.Lcd.clear(); // 新しい画像を表示する前に画面をクリア
     displayImageFromSD("/edited.png");
+
+    // 次回のリクエストから生成された画像を使用
+    inputImagePath = "/edited.png";
 }
 
 void setup() {
     Serial.begin(115200);
     M5.begin();
     M5.Lcd.setRotation(1);
-    M5.Lcd.clear();
-    M5.Lcd.println("Initializing...");
+    // 初期メッセージはシリアルモニターのみに出力
+    Serial.println("Initializing...");
 
     // SDカードを初期化
     if (!SD.begin()) {
@@ -351,15 +344,17 @@ void setup() {
 
     // Wi-Fiに接続
     WiFi.begin(ssid, password);
-    M5.Lcd.print("Connecting to Wi-Fi");
+    Serial.print("Connecting to Wi-Fi");
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
-        M5.Lcd.print(".");
+        Serial.print(".");
     }
-    M5.Lcd.println("\nWi-Fi connected");
-    Serial.println("Wi-Fi connected");
+    Serial.println("\nWi-Fi connected");
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+
+    // デフォルトの画像を表示する前に画面をクリア
+    M5.Lcd.clear(); // 画面をクリアして初期メッセージを消去
 
     // デフォルトの画像を表示
     displayImageFromSD("/elephant.png");
