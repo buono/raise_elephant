@@ -18,6 +18,15 @@ const char* openai_endpoint = "/v1/images/edits";
 // PNGデコーダのインスタンス
 PNG png;
 
+// 初回かどうかを判定するフラグ
+bool isFirstRequest = true;
+
+// 入力画像のファイルパス
+String inputImagePath = "/elephant.png";
+
+// プロンプトの変数
+String prompt = "";
+
 // PNGデコーダのコールバック関数
 void pngDraw(PNGDRAW *pDraw) {
     uint16_t lineBuffer[pDraw->iWidth];
@@ -78,8 +87,8 @@ void displayImageFromSD(const char* filename) {
     free(buffer);
 }
 
-// OpenAIに画像編集リクエストを送信する関数
-void sendImageEditRequest() {
+// OpenAIに画像編集リクエストを送信する関数（プロンプトを引数に追加）
+void sendImageEditRequest(const char* prompt) {
     M5.Lcd.clear();
     M5.Lcd.println("Sending request...");
     Serial.println("Preparing to send image edit request to OpenAI...");
@@ -93,8 +102,11 @@ void sendImageEditRequest() {
         return;
     }
 
-    // SDカードから画像とマスクファイルを読み込む
-    File imageFile = SD.open("/elephant.png", FILE_READ);
+    // 入力画像のパスを決定
+    const char* imageFilePath = inputImagePath.c_str();
+
+    // 画像とマスクファイルをSDカードから読み込む
+    File imageFile = SD.open(imageFilePath, FILE_READ);
     File maskFile = SD.open("/mask.png", FILE_READ);
 
     if (!imageFile || !maskFile) {
@@ -122,7 +134,7 @@ void sendImageEditRequest() {
     // multipart/form-dataのボディを準備
     String bodyStart = "";
     bodyStart += "--" + boundary + "\r\n";
-    bodyStart += "Content-Disposition: form-data; name=\"image\"; filename=\"elephant.png\"\r\n";
+    bodyStart += "Content-Disposition: form-data; name=\"image\"; filename=\"input.png\"\r\n";
     bodyStart += "Content-Type: image/png\r\n\r\n";
 
     String bodyMiddle = "";
@@ -133,7 +145,7 @@ void sendImageEditRequest() {
     String bodyPrompt = "";
     bodyPrompt += "\r\n--" + boundary + "\r\n";
     bodyPrompt += "Content-Disposition: form-data; name=\"prompt\"\r\n\r\n";
-    bodyPrompt += "元の画像に対して、おにぎりを1つ食べて大きくなったところを想像して画像を作成して。\r\n";
+    bodyPrompt += String(prompt) + "\r\n";
 
     // sizeパラメータを追加
     String bodySize = "";
@@ -249,12 +261,16 @@ void sendImageEditRequest() {
     Serial.println("Generated Image URL:");
     Serial.println(imageUrl);
 
-    // 生成された画像をダウンロードして表示
-    displayImageFromURL(imageUrl);
+    // 生成された画像をダウンロードして表示し、SDカードに保存
+    downloadAndDisplayImage(imageUrl);
+
+    // 次回のリクエストから生成された画像を使用
+    inputImagePath = "/edited.png";
+    isFirstRequest = false;
 }
 
-// URLから画像をダウンロードして表示する関数
-void displayImageFromURL(const char* url) {
+// 画像をダウンロードして表示し、SDカードに保存する関数
+void downloadAndDisplayImage(const char* url) {
     WiFiClientSecure client;
     client.setInsecure();
 
@@ -286,47 +302,33 @@ void displayImageFromURL(const char* url) {
         }
     }
 
-    // 画像データをバッファに読み込む
-    uint8_t* buffer = (uint8_t*)ps_malloc(200 * 1024); // 200KBのメモリを確保
-    if (!buffer) {
-        Serial.println("Failed to allocate memory for image");
-        M5.Lcd.println("Memory allocation failed");
+    // 画像データをSDカードに保存
+    File imageFile = SD.open("/edited.png", FILE_WRITE);
+    if (!imageFile) {
+        Serial.println("Failed to open file for writing");
+        M5.Lcd.println("SD write failed");
         return;
     }
 
-    size_t index = 0;
+    // 画像データを読み込みながら表示
+    uint8_t buffer[1024];
+    size_t bytesRead = 0;
+    size_t totalBytes = 0;
     while (client.connected() || client.available()) {
         if (client.available()) {
-            int c = client.read();
-            if (c < 0) break;
-            buffer[index++] = (uint8_t)c;
-            if (index >= 200 * 1024) {
-                Serial.println("Image too large");
-                M5.Lcd.println("Image too large");
-                free(buffer);
-                return;
+            int len = client.read(buffer, sizeof(buffer));
+            if (len > 0) {
+                // SDカードに書き込み
+                imageFile.write(buffer, len);
+                totalBytes += len;
             }
         }
     }
+    imageFile.close();
     client.stop();
 
-    // 画像を表示
-    int rc = png.openRAM(buffer, index, pngDraw);
-    if (rc == PNG_SUCCESS) {
-        M5.Lcd.clear();
-        int decodeResult = png.decode(NULL, 0);
-        if (decodeResult != 0) {
-            Serial.printf("PNG decode failed with code: %d\n", decodeResult);
-            M5.Lcd.println("Decode failed");
-        } else {
-            Serial.println("Edited image displayed successfully.");
-        }
-        png.close();
-    } else {
-        Serial.printf("PNG openRAM failed with code: %d\n", rc);
-        M5.Lcd.println("Failed to open PNG");
-    }
-    free(buffer);
+    // ダウンロードした画像を表示
+    displayImageFromSD("/edited.png");
 }
 
 void setup() {
@@ -362,7 +364,19 @@ void setup() {
 void loop() {
     M5.update();
 
+    // ボタンAが押された場合
     if (M5.BtnA.wasPressed()) {
-        sendImageEditRequest();
+        prompt = "元の画像に対して、おにぎりを1つ食べて成長したところを想像して画像を作成して。";
+        sendImageEditRequest(prompt.c_str());
+    }
+    // ボタンBが押された場合
+    if (M5.BtnB.wasPressed()) {
+        prompt = "元の画像に対して、オレンジジュースを1杯飲んで成長したところを想像して画像を作成して。";
+        sendImageEditRequest(prompt.c_str());
+    }
+    // ボタンCが押された場合
+    if (M5.BtnC.wasPressed()) {
+        prompt = "元の画像に対して、プリンを1つ食べて成長したところを想像して画像を作成して。";
+        sendImageEditRequest(prompt.c_str());
     }
 }
